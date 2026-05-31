@@ -1,0 +1,40 @@
+{
+  "name": "fetch-notion-docs",
+  "version": "1.0.0",
+  "description": "把公开 Notion 站点整站下载成 Markdown（含内部引用链接与图片），免官方 token",
+  "type": "module",
+  "main": "index.mjs",
+  "exports": {
+    ".": "./index.mjs"
+  },
+  "bin": {
+    "fetch-notion-docs": "cli.mjs"
+  },
+  "files": [
+    "index.mjs",
+    "cli.mjs",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "crawl": "node cli.mjs"
+  },
+  "keywords": [
+    "notion",
+    "markdown",
+    "crawler",
+    "export",
+    "scraper",
+    "notion-to-markdown"
+  ],
+  "author": "Soda <jiangjay818@gmail.com>",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "notion-client": "^7.10.0",
+    "notion-utils": "^7.10.0"
+  }
+}
