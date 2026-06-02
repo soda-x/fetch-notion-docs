@@ -1,6 +1,6 @@
 {
   "name": "fetch-notion-docs",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "把公开 Notion 站点整站下载成 Markdown（含内部引用链接与图片），免官方 token",
   "type": "module",
   "main": "index.mjs",
@@ -30,6 +30,14 @@
   ],
   "author": "Soda <jiangjay818@gmail.com>",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/soda-x/fetch-notion-docs.git"
+  },
+  "homepage": "https://github.com/soda-x/fetch-notion-docs#readme",
+  "bugs": {
+    "url": "https://github.com/soda-x/fetch-notion-docs/issues"
+  },
   "engines": {
     "node": ">=18"
   },
