@@ -8,7 +8,8 @@ Made for the case where you want to archive **someone else's published public si
 
 ## Features
 
-- **Recursive BFS crawl** from the root page: follows sub-pages / database rows / page mentions / in-site `a`-links
+- Accepts Notion **vanity URLs** (`notion.site/<slug>` with no page id) — auto-resolves the real page id from the page HTML
+- **Recursive BFS crawl** from the root page: follows sub-pages / database rows / same-host `a`-links. Stays within one site — it won't wander into other sites that share the same workspace
 - Renders each page to **Markdown**: bold, italic, strikethrough, inline code, links, headings, lists, to-dos, quotes, callouts, code blocks, equations, images
   - `toggle` → `<details>`
   - database views → Markdown tables (first view)
@@ -101,6 +102,7 @@ REQUEST_DELAY_MS=1200 MAX_PAGES=1000 fetch-notion-docs "<ROOT_URL>" ./docs
 
 - **The site must be Published (public)**, otherwise `loadPageChunk` returns unauthorized and the page can't be fetched.
 - Pages that can't be fetched (404 / unpublished / a different workspace) are **kept as their original Notion remote links**, not localized.
+- The crawl scope is the **page subtree + same-site links**. Page mentions and link-to-page references that point to other sites in the same workspace are rendered as links but **not crawled** (this avoids accidentally pulling in an entire shared workspace).
 - Only the **first view** of a database is read; nested databases, `synced_block`, and special embeds (Figma / Drive, etc.) currently use fallback rendering and may not be ideal.
 - You are downloading **third-party content** — confirm copyright and usage rights yourself. This repo `.gitignore`s `docs/` by default; committing crawled output to version control is not recommended.
 

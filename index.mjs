@@ -28,6 +28,29 @@ const getBlock = (rm, id) => rval(rm?.block?.[id]);
 export class PermanentError extends Error {}
 const isPermanent = (msg) => /not found|unauthorized|403|404|restricted|has been deleted/i.test(msg || '');
 
+const UUID_RE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
+// 解析根页 pageId：URL 里带 id 直接取；vanity 短链（notion.site/<slug>）则抓 HTML 提取
+export async function resolvePageId(rootUrl, warn = () => {}) {
+  const direct = parsePageId(rootUrl);
+  if (direct) return direct;
+  try {
+    const res = await fetch(rootUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const html = await res.text();
+    // 优先匹配 "pageId":"<uuid>"，回退到 HTML 中第一个 uuid
+    const m = html.match(new RegExp(`"pageId"\\s*:\\s*"(${UUID_RE.source})"`, 'i'))
+      || html.match(UUID_RE);
+    if (m) {
+      const id = parsePageId(m[1] || m[0]);
+      if (id) return id;
+    }
+  } catch (err) {
+    warn(`  解析 vanity 短链失败: ${err.message}`);
+  }
+  return null;
+}
+
 // ---------- 带重试的网络封装 ----------
 async function getPageWithRetry(pageId, { requestDelayMs, warn, tries = 6 }) {
   for (let i = 0; i < tries; i++) {
@@ -129,50 +152,53 @@ function getCollectionRowIds(recordMap, collectionId, viewId) {
   return [...new Set(ids)];
 }
 
-// 从一个 recordMap 收集子页/数据库行/页面提及的 pageId
-function collectChildPageIds(recordMap, selfId, siteHost) {
+// 从一个 recordMap 收集「结构性子孙」的 pageId（子页 + 该页自有数据库的行）。
+//
+// 关键：getPage(P) 的 recordMap 不只含 P 的后代，还会把 P 里被链接/提及到的页也作为
+// type==='page' 的块带进来——这些页的真实 parent 在别处（同一 workspace 的其它站点）。
+// 若不加区分地全收，就会顺着引用漫游进整个共享 workspace。
+// 因此子页只认 parent 链能回到 P 的真正后代；纯引用（a 链接 / p 提及 / alias）不扩张边界，
+// 仅在渲染时作为链接，目标若恰好被抓到则改写为本地。
+function collectChildPageIds(recordMap, selfId) {
   const found = new Set();
   const selfClean = uuidToId(selfId);
 
+  // cleanId -> block 索引（用于沿 parent 链回溯）
+  const idx = new Map();
   for (const [id, entry] of Object.entries(recordMap.block || {})) {
     const b = rval(entry);
-    if (!b) continue;
-    if ((b.type === 'page' || b.type === 'collection_view_page') && uuidToId(id) !== selfClean) {
-      found.add(id);
+    if (b) idx.set(uuidToId(id), b);
+  }
+  // 从 startClean 沿 parent_id 上溯，能否到达当前页 selfClean
+  const reachesSelf = (startClean) => {
+    let cur = startClean;
+    const guard = new Set();
+    while (cur && !guard.has(cur)) {
+      guard.add(cur);
+      const b = idx.get(cur);
+      if (!b || !b.parent_id || b.parent_table === 'space') return false;
+      const pclean = uuidToId(b.parent_id);
+      if (pclean === selfClean) return true;
+      cur = pclean;
     }
-    // alias（link-to-page 引用块）指向的目标页
-    if (b.type === 'alias') {
-      const tgt = b.format?.alias_pointer?.id;
-      if (tgt) found.add(tgt);
+    return false;
+  };
+
+  for (const [cleanId, b] of idx) {
+    const isSelf = cleanId === selfClean;
+    // 子页：仅真正的结构性后代
+    if ((b.type === 'page' || b.type === 'collection_view_page') && !isSelf) {
+      if (reachesSelf(cleanId)) found.add(cleanId);
     }
-    // 行内数据库：抓行
+    // 数据库行：仅当该数据库块属于当前页（自有数据库，非外链视图）
     if (b.type === 'collection_view' || b.type === 'collection_view_page') {
-      const collId = b.collection_id || b.format?.collection_pointer?.id;
-      for (const viewId of b.view_ids || []) {
-        if (collId) for (const rid of getCollectionRowIds(recordMap, collId, viewId)) found.add(rid);
-      }
-    }
-    // 页面提及 / 站内 a 链接
-    const scanProps = (props) => {
-      for (const v of Object.values(props || {})) {
-        if (!Array.isArray(v)) continue;
-        for (const seg of v) {
-          for (const d of seg[1] || []) {
-            if (d[0] === 'p' && d[1]) found.add(d[1]);
-            if (d[0] === 'a' && d[1]) {
-              const href = d[1];
-              const isInternal = href.startsWith('/') ||
-                (siteHost && href.includes(siteHost)) || href.includes('notion.so');
-              if (isInternal) {
-                const m = href.match(/([0-9a-f]{32})/i);
-                if (m) found.add(m[1]);
-              }
-            }
-          }
+      if (isSelf || reachesSelf(cleanId)) {
+        const collId = b.collection_id || b.format?.collection_pointer?.id;
+        for (const viewId of b.view_ids || []) {
+          if (collId) for (const rid of getCollectionRowIds(recordMap, collId, viewId)) found.add(rid);
         }
       }
-    };
-    scanProps(b.properties);
+    }
   }
   return [...found];
 }
@@ -447,10 +473,7 @@ export async function crawlNotionSite(rootUrl, outDir, options = {}) {
   if (!rootUrl) throw new Error('crawlNotionSite: rootUrl 必填');
   outDir = path.resolve(outDir || './docs');
   const assetsDir = path.join(outDir, 'assets');
-  let siteHost = '';
-  try { siteHost = new URL(rootUrl).host; } catch {}
-
-  const rootId = parsePageId(rootUrl);
+  const rootId = await resolvePageId(rootUrl, warn);
   if (!rootId) throw new Error(`无法从 URL 解析 pageId: ${rootUrl}`);
 
   await mkdir(assetsDir, { recursive: true });
@@ -542,7 +565,7 @@ export async function crawlNotionSite(rootUrl, outDir, options = {}) {
     pages.set(clean, { recordMap, title: title || '未命名', pageId: pid });
 
     // 收集子页
-    for (const childId of collectChildPageIds(recordMap, pid, siteHost)) {
+    for (const childId of collectChildPageIds(recordMap, pid)) {
       const cclean = uuidToId(childId);
       if (!seen.has(cclean) && !failed.has(cclean) && !queued.has(cclean)) {
         queued.add(cclean);

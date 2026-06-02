@@ -8,7 +8,8 @@
 
 ## 特性
 
-- 从根页 **BFS 递归抓全**：跟进子页 / 数据库行 / 页面提及 / 站内 `a`-链接
+- 支持 Notion **vanity 短链**（`notion.site/<slug>`，URL 里没有 page id）—— 自动从页面 HTML 解析出真实 page id
+- 从根页 **BFS 递归抓全**：跟进子页 / 数据库行 / 同 host 的 `a`-链接。**只在单个站点内**，不会窜进同一 workspace 下的其它站点
 - 每页转 **Markdown**：粗体、斜体、删除线、行内代码、链接、标题、列表、待办、引用、callout、代码块、公式、图片
   - `toggle` → `<details>`
   - 数据库视图 → Markdown 表格（取第一个视图）
@@ -101,6 +102,7 @@ REQUEST_DELAY_MS=1200 MAX_PAGES=1000 fetch-notion-docs "<根页URL>" ./docs
 
 - **站点必须是 Publish 公开状态**，否则 `loadPageChunk` 返回未授权，整页抓不到。
 - 抓不到的页面（404 / 未发布 / 别的 workspace）会**保留为原始 Notion 远程链接**，不做本地化。
+- 爬取边界是**页面子树 + 同站链接**。指向同一 workspace 下其它站点的页面提及 / link-to-page 引用只渲染成链接、**不会被爬进来**（避免误把整个共享 workspace 拖下来）。
 - 数据库只取**第一个视图**的行；嵌套数据库、`synced_block`（同步块）、特殊 embed（Figma / Drive 等）目前是兜底渲染，未必理想。
 - 下载的是**第三方内容**，请自行确认版权与使用授权；本仓库默认 `.gitignore` 掉 `docs/`，不建议把抓取产出提交进版本库。
 
